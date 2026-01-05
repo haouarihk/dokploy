@@ -35,6 +35,8 @@ import { AddTemplate } from "@/components/dashboard/project/add-template";
 import { AdvancedEnvironmentSelector } from "@/components/dashboard/project/advanced-environment-selector";
 import { DuplicateProject } from "@/components/dashboard/project/duplicate-project";
 import { EnvironmentVariables } from "@/components/dashboard/project/environment-variables";
+import { ExportServices } from "@/components/dashboard/project/export-services";
+import { ImportServices } from "@/components/dashboard/project/import-services";
 import { ProjectEnvironment } from "@/components/dashboard/projects/project-environment";
 import {
 	MariadbIcon,
@@ -942,6 +944,13 @@ const EnvironmentPage = (
 													projectName={projectData?.name}
 													environmentId={environmentId}
 												/>
+												<DropdownMenuSeparator />
+												<ImportServices
+													environmentId={environmentId}
+													onSuccess={() => {
+														refetch();
+													}}
+												/>
 											</DropdownMenuContent>
 										</DropdownMenu>
 									)}
@@ -1075,6 +1084,15 @@ const EnvironmentPage = (
 														<DuplicateProject
 															environmentId={environmentId}
 															services={applications}
+															selectedServiceIds={selectedServices}
+														/>
+														<ExportServices
+															environmentId={environmentId}
+															services={applications.map((s) => ({
+																id: s.id,
+																name: s.name,
+																type: s.type,
+															}))}
 															selectedServiceIds={selectedServices}
 														/>
 													</>

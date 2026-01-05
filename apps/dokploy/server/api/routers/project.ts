@@ -18,6 +18,7 @@ import {
 	createRedis,
 	createSecurity,
 	deleteProject,
+	exportServices,
 	findApplicationById,
 	findComposeById,
 	findEnvironmentById,
@@ -29,8 +30,11 @@ import {
 	findProjectById,
 	findRedisById,
 	findUserById,
+	importServices,
 	IS_CLOUD,
 	updateProjectById,
+	type ExportData,
+	type ServiceType,
 } from "@dokploy/server";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -717,6 +721,131 @@ export const projectRouter = createTRPCRouter({
 				throw new TRPCError({
 					code: "BAD_REQUEST",
 					message: `Error duplicating the project: ${error instanceof Error ? error.message : error}`,
+					cause: error,
+				});
+			}
+		}),
+
+	export: protectedProcedure
+		.input(
+			z.object({
+				environmentId: z.string(),
+				serviceIds: z
+					.array(
+						z.object({
+							id: z.string(),
+							type: z.enum([
+								"application",
+								"postgres",
+								"mariadb",
+								"mongo",
+								"mysql",
+								"redis",
+								"compose",
+							]),
+						}),
+					)
+					.optional(),
+				includeVolumeData: z.boolean().default(false),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				// Verify access to the environment
+				const environment = await findEnvironmentById(input.environmentId);
+
+				if (
+					environment.project.organizationId !==
+					ctx.session.activeOrganizationId
+				) {
+					throw new TRPCError({
+						code: "UNAUTHORIZED",
+						message: "You are not authorized to export from this environment",
+					});
+				}
+
+				if (ctx.user.role === "member") {
+					await checkProjectAccess(
+						ctx.user.id,
+						"access",
+						ctx.session.activeOrganizationId,
+						environment.projectId,
+					);
+				}
+
+				const exportData = await exportServices(input.environmentId, {
+					serviceIds: input.serviceIds as
+						| { id: string; type: ServiceType }[]
+						| undefined,
+					includeVolumeData: input.includeVolumeData,
+				});
+
+				return exportData;
+			} catch (error) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: `Error exporting services: ${error instanceof Error ? error.message : error}`,
+					cause: error,
+				});
+			}
+		}),
+
+	import: protectedProcedure
+		.input(
+			z.object({
+				targetEnvironmentId: z.string(),
+				data: z.any(), // ExportData - validated at runtime
+				preserveIds: z.boolean().default(true),
+				serverId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				// Verify access to the target environment
+				const environment = await findEnvironmentById(input.targetEnvironmentId);
+
+				if (
+					environment.project.organizationId !==
+					ctx.session.activeOrganizationId
+				) {
+					throw new TRPCError({
+						code: "UNAUTHORIZED",
+						message: "You are not authorized to import to this environment",
+					});
+				}
+
+				if (ctx.user.role === "member") {
+					await checkProjectAccess(
+						ctx.user.id,
+						"create",
+						ctx.session.activeOrganizationId,
+						environment.projectId,
+					);
+				}
+
+				// Validate export data structure
+				const exportData = input.data as ExportData;
+				if (!exportData.version || !exportData.services) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: "Invalid export data format",
+					});
+				}
+
+				const result = await importServices(
+					exportData,
+					input.targetEnvironmentId,
+					{
+						preserveIds: input.preserveIds,
+						serverId: input.serverId,
+					},
+				);
+
+				return result;
+			} catch (error) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: `Error importing services: ${error instanceof Error ? error.message : error}`,
 					cause: error,
 				});
 			}
